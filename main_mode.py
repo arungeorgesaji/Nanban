@@ -1,78 +1,88 @@
 import os
-import time
 from ultralytics import YOLO
-import subprocess
-import openai
+from gtts import gTTS
+import math
+import yaml
 import cv2
 
-openai.api_key = "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"
+focal_length = 790
+sensor_width = 3.63
+image_filename = os.path.join(os.path.expanduser("~/Documents/Blind_Linux/"), "captured_image.jpg")
+model = YOLO('models/yolov8m-seg.pt')
 
-image_filename = os.path.join(os.path.expanduser("~/Documents/BLIND_PROJECT/"), "captured_image.jpg")
-model = YOLO('yolov8x-seg.pt')
+def calculate_distance(sensor_width, focal_length, object_pixel_width, screen_pixel_width, true_width):
+    # Calculate FOV
+    fov = 2 * math.atan(0.5 * sensor_width / focal_length)
 
-microphone_device_index = 2  
+    # Calculate angle of arc
+    angle_of_arc = fov * (object_pixel_width / screen_pixel_width)
 
-def initialize_camera_and_microphone():
-    global cap, microphone
-    cap = cv2.VideoCapture(0)
-    microphone = cv2.VideoCapture(microphone_device_index)
+    # Calculate true distance
+    true_distance = (true_width / 2) / math.tan(angle_of_arc / 2)
+
+    return true_distance / 240
+
+def speak(text, lang='en', output_file='speech.mp3'):
+    tts = gTTS(text=text, lang=lang)
+    tts.save(output_file)
+    os.system("mpg321 " + output_file)
+
+def load_object_widths(filename):
+    with open(filename, 'r') as file:
+        data = yaml.safe_load(file)
+    return data
+
+object_widths = load_object_widths("/home/arun/Documents/Blind_Linux/width.yaml")
     
-def speak(audio):
-    subprocess.call(['espeak', audio])
+def check_location(x_min, y_min, x_max, y_max, frame_width, frame_height):
+    # Calculate the center of the object
+    object_center_x = (x_min + x_max) // 2
+    object_center_y = (y_min + y_max) // 2
+    
+    # Calculate the center of the frame
+    frame_center_x = frame_width // 2
+    frame_center_y = frame_height // 2
+    
+    # Calculate the margin of error
+    margin_of_error = 10
+    
+    # Check the position of the object
+    if object_center_x < frame_center_x - margin_of_error:
+        return "left"
+    elif object_center_x > frame_center_x + margin_of_error:
+        return "right"
+    else:
+        return "front"
 
 def scan_mode():
-    initialize_camera_and_microphone()
-    if not cap.isOpened():
-        print("Error: Camera not found or could not be opened.")
-        return
-
     try:
+        cap = cv2.VideoCapture(0)
         ret, frame = cap.read()
+        cv2.imwrite(image_filename, frame)
+        frame = cv2.imread(image_filename)
 
-        if ret:
-            cv2.imwrite(image_filename, frame)
-            print("Image captured and saved as", image_filename)
-        else:
-            print("Error: Could not capture an image.")
+        if frame is None:
+            print("Error: Unable to load image.")
             return
-
-        # Use the microphone to capture audio
-        ret, audio_frame = microphone.read()
 
         results = model(frame)
         names = model.names
-        input_words = []
-        for r in results:
-            for c in r.boxes.cls:
-                input_words.append(names[int(c)])
-
-        question = (
-            "Explain the word with the top priority in the list "
-            "(the one a blind would likely want to know about first ["
-            + ', '.join(input_words)
-            + "]) in a way a blind person would understand "
-            "(highly descriptive and doesn't require much education to understand) "
-            "but make sure to cut short it in a way it consists only one sentence or "
-            "two at most (try to still keep the sentence highly understandable to a blind "
-            "person and they don't need much education to understand it)."
-        )
-
-        output = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that provides descriptions to blind people."},
-                {"role": "user", "content": question}
-            ])
-
-        response = output['choices'][0]['message']['content'].strip()
-        speak(response)
-
+        frame_height, frame_width, _ = frame.shape
+        
+        for result in results:
+            for box in result.boxes:
+                coordinates = box.xyxy
+                name = names[int(box.cls)]
+                x_min, y_min, x_max, y_max = coordinates[0][0].item(),coordinates[0][1].item(),coordinates[0][2].item(),coordinates[0][3].item()
+                position = check_location(int(x_min), int(y_min), int(x_max), int(y_max), frame_width, frame_height)
+                if name in object_widths:
+                    true_width = object_widths[name]  # Get the width from the YAML file
+                    distance = calculate_distance(sensor_width, focal_length, int(x_max)-int(x_min), frame_width, true_width)
+                    message = f"There is a {name}, around {distance:.2f} centimeters away and it is in your {position}."
+                    speak(message)
+                
     except Exception as e:
         print(f"Error: {e}")
         import traceback
         traceback.print_exc()
 
-    finally:
-        cap.release()
-        microphone.release()
-        cv2.destroyAllWindows()

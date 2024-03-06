@@ -6,88 +6,100 @@ from bs4 import BeautifulSoup
 import datetime
 import json
 import io
+from pytube import YouTube
+from youtube_search import YoutubeSearch
 from pydub import AudioSegment
 from pydub.playback import play
 import speech_recognition as sr
 import openai
+import keyboard
+from gtts import gTTS
+import os
 
-openai.api_key = "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"
+openai.api_key = "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"
+
+time = 'not_set'
+strTime = 'not set'
+
+def give_info_to_gpt():
+    global temp, strTime
+    search = "temperature in kerala"
+    url = f"https://www.google.com/search?q={search}"
+    r = requests.get(url)
+    data = BeautifulSoup(r.text, "html.parser")
+    temp_value = data.find("div", class_="BNeawe").text
+    temp = f"current {search} is {temp_value}"
+    strTime = datetime.datetime.now().strftime("%H:%M")
+    strTime = f"Sir, the time is {strTime}"
+
+give_info_to_gpt()
 
 def takecommand():
     r = sr.Recognizer()
     with sr.Microphone() as source:
         r.pause_threshold = 1
         r.adjust_for_ambient_noise(source)
-        print("Listening...")
+        speak("Listening...")
         audio = r.listen(source)
 
     try:
         print("Recognizing...")
         query = r.recognize_google(audio)
-        print(f"User said: {query}\n")
+        print(f"User said: {query}\n")                                                                           
 
     except Exception as e:
         speak('Say that again please...')
         query = 'error'
     return query
- 
-def speak(audio):
-    subprocess.call(['espeak', audio])
-   
+
+def speak(text, lang='en', output_file='speech.mp3'):
+    tts = gTTS(text=text, lang=lang)
+    tts.save(output_file)
+    os.system("mpg321 " + output_file)
+
 client_id = 'b13fb24bbdc042e89f761a407c5fa189'
 client_secret = '2a72ff62b0364b1ea881978e62ea7abe'
 
 client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
 sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
-def get_track_audio_features(track_id):
-    return sp.audio_features(track_id)[0]
+def spotify(query):
+    # Search for the song
+    results = sp.search(q=query, limit=1)
 
-def get_similar_tracks(track_audio_features):
-    results = sp.recommendations(seed_tracks=[track_audio_features['id']], limit=10)
-    return results['tracks']
+    # Extract track details
+    track = results['tracks']['items'][0]
+    track_name = track['name']
+    track_artist = track['artists'][0]['name']
+    track_preview_url = track['preview_url']
 
-def play_track(track):
-    preview_url = track['preview_url']
+    print(f"Now playing: {track_name} by {track_artist}")
 
-    if preview_url:
-        response = requests.get(preview_url)
-        audio = AudioSegment.from_file(io.BytesIO(response.content), format="mp3")
-        play(audio)
+    # If song has no preview URL, exit
+    if track_preview_url is None:
+        print("Sorry, the song cannot be played.")
+        return
+
+    song_content = AudioSegment.from_file(io.BytesIO(requests.get(track_preview_url).content))
+    play(song_content)
+
+def search_song(query):
+    results = YoutubeSearch(query, max_results=1).to_dict()
+    if results:
+        video_id = results[0]['id']
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        return url
     else:
-        print("No preview available for this track.")
+        return None
 
-def music(track_name):
-    results = sp.search(q=track_name, limit=1)
-    if results['tracks']['items']:
-        track = results['tracks']['items'][0]
-        print(f"Track found: {track['name']} by {', '.join([artist['name'] for artist in track['artists']])}")
+def download_audio(url):
+    yt = YouTube(url)
+    audio_stream = yt.streams.filter(only_audio=True).first()
+    audio_stream.download(output_path=".", filename="temp_song")
 
-        audio_features = get_track_audio_features(track['id'])
-
-        similar_tracks = get_similar_tracks(audio_features)
-
-        print("\nTop track:")
-
-        if similar_tracks:
-            top_track = similar_tracks[0]
-            top_track_info = f"{top_track['name']} by {', '.join([artist['name'] for artist in top_track['artists']])}"
-            print(top_track_info)
-            play_track(top_track)
-    else:
-        print("No track found.")
-
-def temp():
-    search = "temperature in kerala"
-    url = f"https://www.google.com/search?q={search}"
-    r = requests.get(url)
-    data = BeautifulSoup(r.text, "html.parser")
-    temp = data.find("div", class_="BNeawe").text
-    speak(f"current{search} is {temp}")
-
-def time():
-    strTime = datetime.datetime.now().strftime("%H:%M")
-    speak(f"Sir, the time is {strTime}")
+def play_song():
+    song = AudioSegment.from_file("temp_song")
+    play(song)
 
 def latestnews():
     api_dict = {
@@ -102,13 +114,13 @@ def latestnews():
     content = None
     url = None
     speak("Which field news do you want, [business], [health], [technology], [sports], [entertainment], [science]")
-    news_read=False
-    while news_read==False:
+    news_read = False
+    while news_read == False:
         field = takecommand()
         for key, value in api_dict.items():
             if key.lower() in field.lower():
                 url = value
-                news_read=True
+                news_read = True
             else:
                 url = True
         if url is True:
@@ -127,18 +139,26 @@ def latestnews():
 def voice_mode():
     query = takecommand().lower()
 
-    if query=='spotify':
+    if query == 'spotify':
         speak("please confirm the song you want to hear")
         track = takecommand().lower()
-        music(track)
+        spotify(track)
+    
+    elif query == 'youtube':
+        speak("please confirm the video you want to hear")
+        track = takecommand().lower()
+        url = search_song(track)
+        
+        if url:
+            print("Downloading song...")
+            download_audio(url)
+            print("Playing song...")
+            play_song()
+            
+        else:
+            print("No results found for the given query.")
 
-    elif query=='temperature':
-        temp()
-
-    elif query=='time':
-        time()
-
-    elif query=='news':
+    elif query == 'news':
         latestnews()
 
     elif query == 'error':
@@ -150,10 +170,12 @@ def voice_mode():
         output = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that provides descriptions to blind people."},
+                {"role": "system", "content": "You are a helpful assistant that provides descriptions to blind people. Here are some information you might be able to assist with " + 
+                'current temperature or weather is ' + temp + ' current time is ' + strTime + ' use these information incase user asks the user may hot ask for it but here it is just incase and if the use does not ask dont use it and respond normally like as assistant to a blind person '},
                 {"role": "user", "content": question}
             ])
 
         response = output['choices'][0]['message']['content'].strip()
         speak(response)
+
 
