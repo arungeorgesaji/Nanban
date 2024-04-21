@@ -16,7 +16,7 @@ import keyboard
 from gtts import gTTS
 import os
 
-openai.api_key = "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"
+openai.api_key = ""
 
 time = 'not_set'
 strTime = 'not set'
