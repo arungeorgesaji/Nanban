@@ -15,24 +15,30 @@ import openai
 import keyboard
 from gtts import gTTS
 import os
+from huggingface_hub import login
+from langchain.llms import HuggingFaceHub
+import requests
 
-openai.api_key = ""
+ipdata_api_key = "593fe98fa91127b3b7a2f3ed538cf0b85ecf684657b128afbedb3744"  
+url = f'https://api.ipdata.co?api-key={ipdata_api_key}'
 
 time = 'not_set'
 strTime = 'not set'
 
-def give_info_to_gpt():
-    global temp, strTime
-    search = "temperature in kerala"
-    url = f"https://www.google.com/search?q={search}"
-    r = requests.get(url)
-    data = BeautifulSoup(r.text, "html.parser")
-    temp_value = data.find("div", class_="BNeawe").text
-    temp = f"current {search} is {temp_value}"
-    strTime = datetime.datetime.now().strftime("%H:%M")
-    strTime = f"Sir, the time is {strTime}"
+os.environ['HUGGINGFACEHUB_API_TOKEN'] = "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"
+login("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")
+gemma7b = HuggingFaceHub(repo_id='google/gemma-1.1-7b-it')
 
-give_info_to_gpt()
+def gemma7b_response(input_text,context,length):
+    template = f"""
+    ###context:{context},
+    ###instruction:Please provide your response based solely on the information provided in the context and provide the complete answer.
+    ###length: {length}
+    ###question:{input_text},
+    ###answer:
+"""
+    response = gemma7b(template).split("###answer:")[1]
+    return response
 
 def takecommand():
     r = sr.Recognizer()
@@ -52,6 +58,46 @@ def takecommand():
         query = 'error'
     return query
 
+def classify_action(input_text):
+    context = """
+I want you to respond with the corresponding number just the number is needed,nothing else should be in the response
+basically i will give a list of like questions give me the most similar question
+
+List of Questions
+What  is the time right now:1
+What is the temperature right now:2
+What is the weather right now:3
+What is the news/current happenings:4
+Play me a song from spotify:5
+Play me a song from youtube:6
+End of list of questions
+
+If the questions doesnt like mean anything similar to all these questions then respond with Never answer with like a sentence only use the corresponding numbers
+and any weird question not similar to any of thhese just answer 0
+"""
+    length="short"
+    return gemma7b_response(input_text,context,length)
+
+def get_response(input_text):
+    context = """
+The guy who is asking the question is a blind person who is using you inside the product Nanban
+you are being used as a voice assistant to answer his queries please answer fully and carefully
+please dont leave out any point even though its needs to be if its needed the answer  can always
+be long also make sure to respond every question with words only avoid using symbols and numbers
+if needed the numbers and symbols should be expressed in word form.
+"""
+    length = "as long as possible"
+    response = gemma7b_response(input_text,context,length)
+    clean_response = remove_unwanted_characters(response)
+    speak(clean_response)
+    
+def remove_unwanted_characters(input_text):
+    characters_to_remove = ["*",".","-","_",",",":","?","/",">","<","=","^","(",")","{","}","[","]"]
+
+    for char in characters_to_remove:
+        input_text = input_text.replace(char, "")
+    return input_text
+
 def speak(text, lang='en', output_file='speech.mp3'):
     tts = gTTS(text=text, lang=lang)
     tts.save(output_file)
@@ -63,9 +109,14 @@ client_secret = '2a72ff62b0364b1ea881978e62ea7abe'
 client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
 sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
-def spotify(query):
+def spotify():
+    query=""
+    #Ask the user which song they want to hear
+    speak("please confirm the song you want to hear")
+    track = takecommand().lower()
+        
     # Search for the song
-    results = sp.search(q=query, limit=1)
+    results = sp.search(q=track, limit=1)
 
     # Extract track details
     track = results['tracks']['items'][0]
@@ -83,14 +134,22 @@ def spotify(query):
     song_content = AudioSegment.from_file(io.BytesIO(requests.get(track_preview_url).content))
     play(song_content)
 
-def search_song(query):
-    results = YoutubeSearch(query, max_results=1).to_dict()
+def search_song():
+    video=""
+    speak("please confirm the video you want to hear")
+    video = takecommand().lower()
+        
+    results = YoutubeSearch(video, max_results=1).to_dict()
     if results:
         video_id = results[0]['id']
         url = f"https://www.youtube.com/watch?v={video_id}"
-        return url
+        speak("Downloading  video...")
+        download_audio(url)
+        speak("Playing video...")
+        play_song()
+            
     else:
-        return None
+        speak("video not found")
 
 def download_audio(url):
     yt = YouTube(url)
@@ -136,46 +195,43 @@ def latestnews():
                 article = articles["title"]
                 speak(article)
 
+def get_time():
+    strTime = datetime.datetime.now().strftime("%H:%M")
+    speak(f"The current time is {strTime}")
+
+def get_temperature():
+    location = get_location()
+    city = location['city']
+    search = f"temperature in {city}"
+    url = f"https://www.google.com/search?q={search}"
+    r = requests.get(url)
+    data = BeautifulSoup(r.text, "html.parser")
+    temp_value = data.find("div", class_="BNeawe").text
+    speak(f"current {search} is {temp_value}")
+
+def get_location():
+    ipdata = requests.get(url).json()
+    return ipdata
+
 def voice_mode():
     query = takecommand().lower()
-
-    if query == 'spotify':
-        speak("please confirm the song you want to hear")
-        track = takecommand().lower()
-        spotify(track)
     
-    elif query == 'youtube':
-        speak("please confirm the video you want to hear")
-        track = takecommand().lower()
-        url = search_song(track)
+    if query=='error':
+        return
         
-        if url:
-            print("Downloading song...")
-            download_audio(url)
-            print("Playing song...")
-            play_song()
-            
-        else:
-            print("No results found for the given query.")
-
-    elif query == 'news':
-        latestnews()
-
-    elif query == 'error':
+    action = classify_action(query)
+    
+    if '0' in action:
+        get_response(query)
+    elif '1' in action:
+        get_time()
+    elif '2' in action:
+        get_temperature()        
+    elif '3' in action:
         pass
-
-    else:
-        question = query + 'response like you are a normal person and a companion to this person'
-
-        output = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that provides descriptions to blind people. Here are some information you might be able to assist with " + 
-                'current temperature or weather is ' + temp + ' current time is ' + strTime + ' use these information incase user asks the user may hot ask for it but here it is just incase and if the use does not ask dont use it and respond normally like as assistant to a blind person '},
-                {"role": "user", "content": question}
-            ])
-
-        response = output['choices'][0]['message']['content'].strip()
-        speak(response)
-
-
+    elif '4' in action:
+        latest_news()
+    elif '5' in action:
+        spotify()
+    elif '6' in action:
+       search_song()
