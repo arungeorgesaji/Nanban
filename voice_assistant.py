@@ -82,7 +82,7 @@ if needed the numbers and symbols should be expressed in word form.
     speak(clean_response)
     
 def remove_unwanted_characters(input_text):
-    characters_to_remove = ["*","_",":","?","/",">","<","=","^","(",")","{","}","[","]"]
+    characters_to_remove = ["*","_","?","/",">","<","=","^","(",")","{","}","[","]"]
 
     for char in characters_to_remove:
         input_text = input_text.replace(char, "")
