@@ -1,0 +1,15 @@
+[Unit]
+Description=Nanban Python Service
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/nanban/nanban/main.py
+WorkingDirectory=/home/nanban/nanban
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=nanban  
+
+[Install]
+WantedBy=multi-user.target
+
