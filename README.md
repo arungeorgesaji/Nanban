@@ -49,7 +49,7 @@ The Nanban project is an ongoing effort, and future developments may include:
 
 2.Install Packages:
 
-    pip install gpiozero pulsectl ultralytics gtts opencv-python pyyaml spotipy requests beautifulsoup4 pytube youtube-search-python pydub SpeechRecognition keyboard youtube-dl huggingface_hub langchain
+    sudo apt-get install pip mpg321 && pip install gpiozero pulsectl ultralytics gtts opencv-python pyyaml spotipy requests beautifulsoup4 pytube youtube-search-python pydub SpeechRecognition keyboard youtube-dl huggingface_hub langchain_community openai
 
 3.Make nanban run on startup:
 
